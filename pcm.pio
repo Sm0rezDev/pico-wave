@@ -1,5 +1,5 @@
 .program pcm
 .wrap_target
     pull            ; Pull data from the input FIFO
-    out pins, 12    ; Output the 12-bit data to the GPIO pins
+    out pins, 8    ; Output the 12-bit data to the GPIO pins
 .wrap

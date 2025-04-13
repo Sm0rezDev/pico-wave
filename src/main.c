@@ -8,11 +8,12 @@
 #include "pcm.pio.h"
 #include <math.h>
 
-#define BASE_PIN 2        // Starting GPIO pin
-#define N_BITS 12         // Number of parallel bits
-#define MAXNSAMP 4096
+#define BASE_PIN 0        // Starting GPIO pin
+#define N_BITS 8         // Number of parallel bits
+#define MIN_SAMP 4
+#define MAX_SAMP 256
 
-uint16_t *buffer;
+uint8_t *buffer;
 uint16_t nsamp;
 float clk_div = 1.0f;
 
@@ -35,7 +36,7 @@ void dma_init(PIO pio, uint sm) {
     dma_chan_0 = dma_claim_unused_channel(true);
 
     dma_channel_config c0 = dma_channel_get_default_config(dma_chan_0);
-    channel_config_set_transfer_data_size(&c0, DMA_SIZE_16);  // Change to 16-bit transfers
+    channel_config_set_transfer_data_size(&c0, DMA_SIZE_8);  // 8-bit transfers
     channel_config_set_read_increment(&c0, true);
     channel_config_set_write_increment(&c0, false);
     channel_config_set_dreq(&c0, pio_get_dreq(pio, sm, true));
@@ -61,25 +62,20 @@ float sine(float phase) {
 
 void set_f(float freq) {
     // Free old buffer if exists and reallocate
-    if (buffer) free(buffer);
+    free(buffer);
 
     // Get system clock
     float sysclk = (float)clock_get_hz(clk_sys);
 
-    // Calculate the number of samples based on the system clock and desired frequency
-    nsamp = (uint16_t)(sysclk / (freq * 8.0f));
-    nsamp = (nsamp / 4) * 4;  // Ensure nsamp is divisible by 4 for DMA alignment
-
-    // Apply boundaries
-    if (nsamp < 8) nsamp = 8;  // Ensure at least 4 samples
-    if (nsamp > MAXNSAMP) nsamp = MAXNSAMP;  // Limit to MAXNSAMP
+    nsamp = (uint)(sysclk / (freq * 8 * 2));
+    nsamp = (nsamp < MIN_SAMP) ? MIN_SAMP : (nsamp > MAX_SAMP) ? MAX_SAMP : nsamp;
 
     // Calculate clock divider for the PIO
-    clk_div = sysclk / (freq * nsamp * 2);  // Adjust clock divider based on the sample count and frequency
+    clk_div = sysclk / (freq * nsamp * 2);  // Adjust clock divider based on the frequency, samples and cycles.
     if (clk_div < 1.0f) clk_div = 1.0f; // Ensure the divider doesn't go below 1
 
     // Allocate buffer for samples
-    buffer = malloc(nsamp * sizeof(uint16_t));  // Use uint16_t to match the data size
+    buffer = malloc(nsamp * sizeof(uint8_t));  // Use uint16_t to match the data size
     if (!buffer) {
         panic("Buffer allocation failed!\n");
         return;
@@ -91,7 +87,10 @@ void set_f(float freq) {
         float value = sine(phase);  // Generate sine wave
 
         // Map to DAC range
-        uint16_t sample = (uint16_t)(((value + 1.0f) / 2.0f) * ((1 << N_BITS) - 1)); 
+        uint16_t sample = (uint16_t)(
+            ((value + 1.0f) / 2.0f) *
+            ((1 << N_BITS) - 1)
+        ); 
         buffer[i] = sample;
     }
 
@@ -105,7 +104,10 @@ void set_f(float freq) {
 
     // Calculate the actual output frequency
     float actual_freq = sysclk / (clk_div * nsamp) / 2;
-    printf("Actual frequency: %.2f Hz\n", actual_freq);
+    float sampling_rate = sysclk / (clk_div * 2);
+    printf(
+        "Actual frequency: %.2f Hz\n"
+        "Sampling rate: %.2f Hz\n", actual_freq, sampling_rate);
 }
 
 int main() {
@@ -122,10 +124,22 @@ int main() {
     dma_init(pio, sm);
 
     // Initialize buffer
-    buffer = malloc(MAXNSAMP * sizeof(uint16_t));  // Allocate the buffer once
-    set_f(4e6);  // Set initial frequency
-
+    buffer = malloc(nsamp * sizeof(uint8_t));  // Allocate the buffer once
+    set_f(5e6);
     while (1) {
+        // set_f(1e3);  // Set initial frequency
+        // sleep_ms(5000);
+        // for (int f=1e3, inc=1e3; f < 10e3; f += inc) {;
+        //     set_f(f);
+        //     sleep_ms(100);
+        // }
+        // sleep_ms(5000);
+        // set_f(500e3);
+        // sleep_ms(5000);
+        // set_f(1e6);
+        // sleep_ms(5000);
+        // set_f(5e6);
+        // sleep_ms(5000);
         tight_loop_contents();  // Do nothing but keep the loop running
     }
 }
